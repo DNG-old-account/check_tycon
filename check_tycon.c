@@ -16,6 +16,12 @@
 #define RETURN_CRITICAL 2
 #define RETURN_UNKNOWN  3
 
+enum {
+  VALUE_OK,
+  VALUE_TOO_BIG,
+  VALUE_TOO_SMALL
+};
+
 struct wbuf {
   int cur;
   int size;
@@ -25,6 +31,7 @@ struct wbuf {
 struct kvpair {
   char *key;
   float value;
+  int status;
 };
 
 struct check {
@@ -46,6 +53,9 @@ char hostname[256] = "hostname";
 void add_check(char *key, float min, float max)
 {
   struct check *new_check;
+
+  if (min > max)
+    return;
 
   new_check = malloc(sizeof(struct check));
 
@@ -236,6 +246,7 @@ int parse_status(struct wbuf *wbuf)
 
     pair[idx].key = strdup(node->name);
     pair[idx].value = strtof(node->children->content, NULL);
+    pair[idx].status = VALUE_OK;
     idx++;
   }
   xmlFreeDoc(doc);
@@ -253,33 +264,43 @@ void init_pairs()
 }
 
 
-int perform_checks(char *key, float value)
+int perform_checks(struct kvpair *p)
 {
   struct check *ch;
+  int retcode = 0;
 
   for (ch=check_head;ch;ch=ch->next) {
-    if (strcmp(key, ch->key) != 0)
+    if (strcmp(p->key, ch->key) != 0)
       continue;
 
-    if (value < ch->min || value > ch->max)
-      return -1;
+    if (p->value < ch->min) {
+      p->status = VALUE_TOO_SMALL;
+      retcode = -1;
+    } else if (p->value > ch->max) {
+      p->status = VALUE_TOO_BIG;
+      retcode = -1;
+    } else {
+      p->status = VALUE_OK;
+      retcode = 0;
+    }
   }
 
-  return 0;
+  return retcode;
 }
 
 void print_status(int retcode)
 {
   if (retcode == 0)
-    printf ("TPDIN ok");
+    printf ("TYCON OK");
   else
-    printf ("TPDIN problem");
+    printf ("TYCON PROBLEM");
   
   if (pair[0].key) {
     int i = 0;
-    printf (" |");
     while (pair[i].key) {
       printf (" %s=%.1f", pair[i].key, pair[i].value);
+      if (pair[i].status != VALUE_OK)
+	printf ("*");
       i++;
     }
   }
@@ -338,7 +359,7 @@ main(int argc, char **argv)
     if (!pair[i].key)
       break;
 
-    if (perform_checks(pair[i].key, pair[i].value) < 0)
+    if (perform_checks(&pair[i]) < 0)
       retcode = RETURN_CRITICAL;
   }
 
